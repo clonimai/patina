@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="250" height="55" viewBox="0 0 250 55">
+  <rect width="250" height="55" fill="#F5F2ED" rx="8"/>
+  <rect x="1.5" y="1.5" width="247" height="52" fill="none" stroke="#3D3835" stroke-width="1.5" rx="7"/>
+  <text x="40" y="35" font-family="Helvetica, sans-serif" font-size="24" font-weight="600" fill="#0F766E" text-anchor="middle">100%</text>
+  <line x1="75" y1="12" x2="75" y2="45" stroke="#C4BDB4" stroke-width="0.75"/>
+  <text x="83" y="23" font-family="Helvetica, sans-serif" font-size="9" font-weight="600" fill="#9A6B3C">Human Crafted · Patina</text>
+  <text x="81" y="39" font-family="Helvetica, sans-serif" font-size="16" font-weight="600" fill="#4A4540">Craftsmanship Score</text>
+</svg>
