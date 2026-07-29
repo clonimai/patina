@@ -1,0 +1,74 @@
+name: Patina
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+jobs:
+  craft:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          filter: blob:none
+
+      - name: Calculate
+        id: calc
+        run: |
+          # 1. 提取全量 commit → Craft 映射
+          git log --format="%H %(trailers:key=Craft,valueonly=true)" > _scores.txt
+
+          # 2. git blame 逐文件统计存活行归属
+          #    porcelain 格式：每组首行是 SHA + 行数，^前缀的是边界commit
+          git ls-files -z | xargs -0 -n 1 git blame --porcelain HEAD -- 2>/dev/null | \
+            awk '
+              /^[0-9a-f]{40}/ { sha=$1; n=$4; if(sha!~/^0+$/) c[sha]+=n }
+              /^\^[0-9a-f]{40}/ { sha=substr($1,2); n=$4; c[sha]+=n }
+              END { for(s in c) print s, c[s] }
+            ' > _blame.txt
+
+          # 3. 合并计算 R = Σ(Sₖ × Lₖ) / Σ(Lₖ)
+          awk '
+            NR==FNR { m[$1]=$2; next }
+            {
+              s = m[$1] ? m[$1] : 0
+              w += s * $2
+              t += $2
+            }
+            END {
+              if (t == 0) r = 1
+              else r = w / t
+              printf "score=%.4f\nlines=%d\n", r, t
+            }
+          ' _scores.txt _blame.txt | tee -a "$GITHUB_OUTPUT"
+
+      - name: Generate Badge
+        run: |
+          mkdir -p public
+          score=${{ steps.calc.outputs.score }}
+          pct=$(awk "BEGIN { printf \"%d\", $score * 100 }")
+          sed "s/100%/${pct}%/g" badge.svg > public/badge.svg
+
+      - name: Upload Pages Artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+      - name: Deploy to Pages
+        id: deploy
+        uses: actions/deploy-pages@v4
