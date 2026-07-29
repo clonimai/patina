@@ -28,41 +28,48 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - name: Calculate
+      - name: Blame
         run: |
-          # Calculate
+          # Blame
+          mkdir -p .patina
+          git ls-files -z | \
+          xargs -0 -n 1 git blame --abbrev=40 HEAD -- 2>/dev/null | \
+          awk '
+            { sha=$1; gsub(/^\^/,"",sha); if(sha!~/^0+$/) c[sha]++ }
+            END { for(s in c) print s, c[s] }
+          ' > .patina/tmp
 
-          # 1. Blame → per-commit line counts
-          BLAME=$(git ls-files -z | xargs -0 -n 1 git blame --abbrev=40 HEAD -- 2>/dev/null | \
-            awk '{ sha=$1; gsub(/^\^/,"",sha); if(sha!~/^0+$/) c[sha]++ }
-                 END { for(s in c) print s, c[s] }')
-
-          # 2. Append Craft as 3rd column (hash map via NR==FNR)
-          BLAME=$(awk '
+      - name: Craft lookup
+        run: |
+          # Craft lookup
+          TMP=$(cat .patina/tmp)
+          awk '
             NR==FNR { m[$1]=$2; next }
             { print $0, m[$1] }
-          ' <(echo "$BLAME" | awk '{print $1}' | \
+          ' <(echo "$TMP" | awk '{print $1}' | \
               xargs -r git log --no-walk --format="%H %(trailers:key=Craft,valueonly=true)" | \
-              awk '$2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
+              awk '
+                $2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
                 $2 = sprintf("%.4f", $2); print
               }') \
-            <(echo "$BLAME"))
+            <(echo "$TMP") > .patina/tmp
 
-          # 3. Compute weighted average; bail on first missing Craft
-          echo "$BLAME" | awk '
-            { if (NF < 3) exit 1; w += $3 * $2; t += $2 }
-            END { printf "SCORE=%.4f\n", w / t }
-          ' | tee -a "$GITHUB_ENV"
+      - name: Score
+        run: |
+          # Score
+          awk '
+            { if (NF < 3) exit 1; w += $3 * $2; s += $2 }
+            END { printf "SCORE=%d\n", w / s * 100 }
+          ' .patina/tmp >> "$GITHUB_ENV"
+          rm .patina/tmp
 
       - name: Generate Badge
         run: |
           # Generate Badge
-          mkdir -p .patina
           if [ -z "$SCORE" ]; then
             sed "s/100%/—%/g" badge.svg > .patina/badge.svg
           else
-            pct=$(awk "BEGIN { printf \"%d\", $SCORE * 100 }")
-            sed "s/100%/${pct}%/g" badge.svg > .patina/badge.svg
+            sed "s/100%/${SCORE}%/g" badge.svg > .patina/badge.svg
           fi
 
       - name: Upload artifact
