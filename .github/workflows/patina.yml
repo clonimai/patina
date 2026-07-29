@@ -22,7 +22,8 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
         with:
           fetch-depth: 0
           filter: blob:none
@@ -60,16 +61,17 @@ jobs:
 
       - name: Generate Badge
         run: |
-          mkdir -p public
+          mkdir -p .patina
           score=${{ steps.calc.outputs.score }}
           pct=$(awk "BEGIN { printf \"%d\", $score * 100 }")
-          sed "s/100%/${pct}%/g" badge.svg > public/badge.svg
+          sed "s/100%/${pct}%/g" badge.svg > .patina/badge.svg
 
-      - name: Upload Pages Artifact
-        uses: actions/upload-pages-artifact@v3
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v5
         with:
-          path: public
+          path: .patina
+          include-hidden-files: true
 
-      - name: Deploy to Pages
+      - name: Deploy to GitHub Pages
         id: deploy
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@v5
