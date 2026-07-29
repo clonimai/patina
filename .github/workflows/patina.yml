@@ -29,7 +29,6 @@ jobs:
           filter: blob:none
 
       - name: Calculate
-        id: calc
         run: |
           # 1. 提取全量 commit → Craft 映射，截断到4位小数
           git log --format="%H %(trailers:key=Craft,valueonly=true)" | \
@@ -55,15 +54,14 @@ jobs:
             END {
               if (t == 0) r = 1
               else r = w / t
-              printf "score=%.4f\nlines=%d\n", r, t
+              printf "SCORE=%.4f\nLINES=%d\n", r, t
             }
-          ' _scores.txt _blame.txt | tee -a "$GITHUB_OUTPUT"
+          ' _scores.txt _blame.txt | tee -a "$GITHUB_ENV"
 
       - name: Generate Badge
         run: |
           mkdir -p .patina
-          score=${{ steps.calc.outputs.score }}
-          pct=$(awk "BEGIN { printf \"%d\", $score * 100 }")
+          pct=$(awk "BEGIN { printf \"%d\", $SCORE * 100 }")
           sed "s/100%/${pct}%/g" badge.svg > .patina/badge.svg
 
       - name: Upload artifact
