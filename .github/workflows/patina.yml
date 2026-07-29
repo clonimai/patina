@@ -35,15 +35,16 @@ jobs:
             awk '{ sha=$1; gsub(/^\^/,"",sha); if(sha!~/^0+$/) c[sha]++ }
                  END { for(s in c) print s, c[s] }')
 
-          # 2. Append Craft as 3rd column (sequential alignment)
-          BLAME=$(paste -d' ' <(echo "$BLAME") \
-            <(echo "$BLAME" | awk '{print $1}' | \
+          # 2. Append Craft as 3rd column (hash map via NR==FNR)
+          BLAME=$(awk '
+            NR==FNR { m[$1]=$2; next }
+            { print $0, (m[$1] ? m[$1] : "") }
+          ' <(echo "$BLAME" | awk '{print $1}' | \
               xargs -r git log --no-walk --format="%H %(trailers:key=Craft,valueonly=true)" | \
-              awk '{
-                if ($2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1)
-                  printf "%.4f", $2
-                print ""
-              }'))
+              awk '$2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
+                $2 = sprintf("%.4f", $2); print
+              }') \
+            <(echo "$BLAME"))
 
           # 3. Compute weighted average; bail on first missing Craft
           echo "$BLAME" | awk '
