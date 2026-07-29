@@ -30,8 +30,9 @@ jobs:
       - name: Calculate
         id: calc
         run: |
-          # 1. 提取全量 commit → Craft 映射
-          git log --format="%H %(trailers:key=Craft,valueonly=true)" > _scores.txt
+          # 1. 提取全量 commit → Craft 映射，截断到4位小数
+          git log --format="%H %(trailers:key=Craft,valueonly=true)" | \
+            awk '{ if($2 != "") $2 = sprintf("%.4f", $2); print }' > _scores.txt
 
           # 2. git blame 逐文件统计存活行归属
           #    porcelain 格式：每组首行是 SHA + 行数，^前缀的是边界commit
