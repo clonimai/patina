@@ -58,8 +58,8 @@ jobs:
         run: |
           # Score
           awk '
-            { if (NF < 3) exit 0; w += $3 * $2; s += $2 }
-            END { printf "SCORE=%d\n", w / s * 100 }
+            NF >= 3 { w += $3 * $2; s += $2 }
+            END { if (s > 0) printf "SCORE=%d\n", w / s * 100 }
           ' .patina/tmp >> "$GITHUB_ENV"
           rm .patina/tmp
 
