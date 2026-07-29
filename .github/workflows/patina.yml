@@ -30,41 +30,39 @@ jobs:
 
       - name: Calculate
         run: |
-          # 1. Blame → per-commit line counts
+          # 1. Blame → per-commit line counts (in memory)
           BLAME=$(git blame HEAD -- . 2>/dev/null | \
             awk '{ sha=$1; gsub(/^\^/,"",sha); if(sha!~/^0+$/) c[sha]++ }
                  END { for(s in c) print s, c[s] }')
+          echo "DEBUG BLAME:" && echo "$BLAME"
 
-          # 2. Look up Craft values, merge with BLAME, compute score
-          #    Missing/invalid Craft on any surviving commit → empty SCORE
-          awk '
+          # 2. Extract Craft trailers only for commits that have surviving lines
+          SCORES=$(echo "$BLAME" | awk '{print $1}' | \
+            xargs git log --no-walk --format="%h %(trailers:key=Craft,valueonly=true)" | \
+            awk '$2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
+              $2 = sprintf("%.4f", $2)
+              print
+            }')
+          echo "DEBUG SCORES:" && echo "$SCORES"
+
+          # 3. Merge and compute R = Σ(Sₖ × Lₖ) / Σ(Lₖ)
+          RESULT=$(awk '
             NR==FNR { if($1) m[$1]=$2; next }
-            {
-              craft = m[$1] ? m[$1] : ""
-              if (craft == "") missing = 1
-              w += $2 * (craft ? craft : 0)
-              t += $2
-            }
+            { s = m[$1] ? m[$1] : 0; w += s * $2; t += $2 }
             END {
-              if (missing) print "SCORE="
-              else printf "SCORE=%.4f\n", w / t
+              if (t == 0) r = 1
+              else r = w / t
+              printf "SCORE=%.4f\nLINES=%d\n", r, t
             }
-          ' <(echo "$BLAME" | awk '{print $1}' | \
-              xargs git log --no-walk --format="%h %(trailers:key=Craft,valueonly=true)" | \
-              awk '$2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
-                print $1, sprintf("%.4f", $2)
-              }') \
-            <(echo "$BLAME") | tee -a "$GITHUB_ENV"
+          ' <(echo "$SCORES") <(echo "$BLAME"))
+          echo "DEBUG RESULT:" && echo "$RESULT"
+          echo "$RESULT" | tee -a "$GITHUB_ENV"
 
       - name: Generate Badge
         run: |
           mkdir -p .patina
-          if [ -z "$SCORE" ]; then
-            sed "s/100%/—%/g" badge.svg > .patina/badge.svg
-          else
-            pct=$(awk "BEGIN { printf \"%d\", $SCORE * 100 }")
-            sed "s/100%/${pct}%/g" badge.svg > .patina/badge.svg
-          fi
+          pct=$(awk "BEGIN { printf \"%d\", $SCORE * 100 }")
+          sed "s/100%/${pct}%/g" badge.svg > .patina/badge.svg
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
