@@ -33,7 +33,7 @@ jobs:
           # Blame
           mkdir -p .patina
           git ls-files -z | \
-          xargs -0 -n 1 git blame --abbrev=40 HEAD -- 2>/dev/null | \
+          xargs -0 -n 1 git blame --abbrev=41 HEAD -- 2>/dev/null | \
           awk '
             { sha=$1; gsub(/^\^/,"",sha); if(sha!~/^0+$/) c[sha]++ }
             END { for(s in c) print s, c[s] }
