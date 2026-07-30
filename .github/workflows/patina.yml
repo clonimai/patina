@@ -28,73 +28,8 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
-      - name: Blame
-        run: |
-          # Blame
-          mkdir -p .patina
-          git ls-files -z | \
-          xargs -0 -n 1 git blame HEAD -- 2>/dev/null > .patina/blame_raw
-
-          # Pass 1: 扫描是否有边界 ^
-          BOUNDARY=$(grep -c '^\^' .patina/blame_raw || true)
-
-          # 取非 ^ 行第一行的 hash 长度
-          N=$(awk '!/^\^/ { print length($1); exit }' .patina/blame_raw)
-          # 极端情况：全是 ^ 行（不会发生，防御性），用 ^ 行 hash 部分长度
-          if [ -z "$N" ]; then
-            N=$(head -1 .patina/blame_raw | awk '{ print length($1) - 1 }')
-          fi
-
-          # 有边界 → L 比 N 短 1 位；无边界 → 原样
-          if [ "$BOUNDARY" -gt 0 ]; then
-            L=$((N - 1))
-          else
-            L=$N
-          fi
-
-          # 去 ^ → 截到 L → 计数
-          awk -v L="$L" '
-            { sha = $1; gsub(/^\^/,"",sha); sha = substr(sha,1,L) }
-            sha !~ /^0+$/ { c[sha]++ }
-            END { for(s in c) print s, c[s] }
-          ' .patina/blame_raw > .patina/tmp
-          rm .patina/blame_raw
-
-          echo "HASH_LEN=$L" >> "$GITHUB_ENV"
-
-      - name: Craft lookup
-        run: |
-          # Craft lookup
-          TMP=$(cat .patina/tmp)
-          awk '
-            NR==FNR { m[$1]=$2; next }
-            { print $0, m[$1] }
-          ' <(echo "$TMP" | awk '{print $1}' | \
-              xargs -r git log --no-walk --abbrev="$HASH_LEN" \
-                --format="%h %(trailers:key=Craft,valueonly=true)" | \
-              awk '
-                $2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
-                $2 = sprintf("%.4f", $2); print
-              }') \
-            <(echo "$TMP") > .patina/tmp
-
-      - name: Score
-        run: |
-          # Score
-          awk '
-            { if (NF < 3) exit 0; w += $3 * $2; s += $2 }
-            END { printf "SCORE=%d\n", w / s * 100 }
-          ' .patina/tmp >> "$GITHUB_ENV"
-          rm .patina/tmp
-
-      - name: Generate Badge
-        run: |
-          # Generate Badge
-          if [ -z "$SCORE" ]; then
-            sed "s/100%/—%/g" badge.svg > .patina/badge.svg
-          else
-            sed "s/100%/${SCORE}%/g" badge.svg > .patina/badge.svg
-          fi
+      - name: Main
+        run: source main.sh
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
