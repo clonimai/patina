@@ -3,14 +3,10 @@ set -euo pipefail
 
 mkdir -p .patina
 
-# Logging
-log()  { echo "[info]  $*"; }
-elog() { echo "[error] $*" >&2; }
-dlog() {
-  if [ "${ACTIONS_STEP_DEBUG:-false}" = true ]; then
-    echo "[debug] $*" >&2
-  fi
-}
+# Logging (##[debug]/##[error] parsed by GHA runner)
+log()  { echo "$*"; }
+elog() { echo "##[error]$*" >&2; }
+dlog() { echo "##[debug]$*" >&2; }
 
 # blame all tracked files, keep only hash column
 # stderr visible — binary/submodule failures show in output
@@ -36,7 +32,7 @@ len=$(
     END     { print l }
   ' <<< "$raw"
 )
-dlog "len: hash width = $len"
+dlog "len: hash width is $len"
 
 # strip ^ → truncate to len → count surviving lines per commit
 blames=$(
@@ -46,7 +42,6 @@ blames=$(
   END { for(i in count) print i, count[i] }
   ' <<< "$raw"
 )
-
 dlog "blames: $(echo "$blames" | wc -l) unique commits"
 unset raw
 
