@@ -15,7 +15,7 @@ raw=$(
   xargs -0 -r -n 1 git blame HEAD -- |
   cut -d' ' -f1
 )
-dlog "raw: $(echo "$raw" | wc -l) blame lines"
+dlog "raw: total blame lines = $(echo "$raw" | wc -l)"
 
 # empty blame → no files, all binary, or no commits → fallback to —%
 if [ -z "$raw" ]; then
@@ -32,7 +32,7 @@ len=$(
     END     { print l }
   ' <<< "$raw"
 )
-dlog "len: hash width is $len"
+dlog "len: using hash width = $len"
 
 # strip ^ → truncate to len → count surviving lines per commit
 blames=$(
@@ -42,7 +42,7 @@ blames=$(
   END { for(i in count) print i, count[i] }
   ' <<< "$raw"
 )
-dlog "blames: $(echo "$blames" | wc -l) unique commits"
+dlog "blames: unique commits = $(echo "$blames" | wc -l)"
 unset raw
 
 # look up Craft trailer for each commit, filter valid [0,1] values
@@ -57,15 +57,15 @@ scores=$(
     }
   '
 )
-dlog "scores: $(echo "$scores" | wc -l) commits with Craft"
+dlog "scores: commits with Craft = $(echo "$scores" | wc -l)"
 
 # survival-weighted average: R = Σ(Craft × lines) / Σ(lines)
 score=$(
   awk '
     NR==FNR { scores[$1] = $2; next }
-    !($1 in scores) { exit }
+    !($1 in scores) { missing = 1; exit }
     { weights += $2 * scores[$1]; lines += $2 }
-    END { if (lines > 0) printf "%d\n", weights / lines * 100 }
+    END { if (!missing) printf "%d\n", weights / lines * 100 }
   ' <(echo "$scores") <(echo "$blames")
 )
 
