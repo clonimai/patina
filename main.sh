@@ -1,59 +1,60 @@
 #!/usr/bin/env bash
-# Patina — Git commit craftsmanship score
-set -e
+set -euo pipefail
 
 mkdir -p .patina
 
-# ── Blame ──────────────────────────────────────────────────────────
-git ls-files -z | \
-xargs -0 -n 1 git blame HEAD -- 2>/dev/null > .patina/blame_raw
+# blame all tracked files, keep only hash column
+raw=$(
+  git ls-files -z |
+  xargs -0 -n 1 git blame HEAD -- 2>/dev/null |
+  cut -d' ' -f1
+)
 
-BOUNDARY=$(grep -c '^\^' .patina/blame_raw || true)
-N=$(awk '!/^\^/ { print length($1); exit }' .patina/blame_raw)
-# defensive: all ^ lines (won't happen on git blame HEAD)
-if [ -z "$N" ]; then
-  N=$(head -1 .patina/blame_raw | awk '{ print length($1) - 1 }')
-fi
+# hash length: first line total width; if ^ found, blame inflated by 1
+len=$(
+  awk '
+    NR == 1 { l = length($1) }
+    /^\^/   { l--; exit }
+    END     { print l }
+  ' <<< "$raw"
+)
 
-# with boundary → blame inflated by 1; trim both sides to N-1
-if [ "$BOUNDARY" -gt 0 ]; then
-  L=$((N - 1))
-else
-  L=$N
-fi
+# strip ^ → truncate to len → count surviving lines per commit
+blames=$(
+  awk -v l="$len" '
+  { sha = $1; gsub(/^\^/, "", sha); sha = substr(sha, 1, l) }
+  sha !~ /^0+$/ { count[sha]++ }
+  END { for(i in count) print i, count[i] }
+  ' <<< "$raw"
+)
 
-# strip ^ → truncate to L → count lines per commit
-awk -v L="$L" '
-  { sha = $1; gsub(/^\^/,"",sha); sha = substr(sha,1,L) }
-  sha !~ /^0+$/ { c[sha]++ }
-  END { for(s in c) print s, c[s] }
-' .patina/blame_raw > .patina/tmp
-rm .patina/blame_raw
+unset raw
 
-# ── Craft lookup ───────────────────────────────────────────────────
-TMP=$(cat .patina/tmp)
-awk '
-  NR==FNR { m[$1]=$2; next }
-  { print $0, m[$1] }
-' <(echo "$TMP" | awk '{print $1}' | \
-    xargs -r git log --no-walk --abbrev="$L" \
-      --format="%h %(trailers:key=Craft,valueonly=true)" | \
-    awk '
-      $2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
-      $2 = sprintf("%.4f", $2); print
-    }') \
-  <(echo "$TMP") > .patina/tmp
+# look up Craft trailer for each commit, filter valid [0,1] values
+scores=$(
+  cut -d' ' -f1 <<< "$blames" |
+  xargs -r git log --no-walk --abbrev="$len" \
+    --format="%h %(trailers:key=Craft,valueonly=true)" |
+  awk '
+    $2 ~ /^[0-9]+(\.[0-9]+)?$/ && $2 + 0 <= 1 {
+      $2 = sprintf("%.4f", $2)
+      print
+    }
+  '
+)
 
-# ── Score ──────────────────────────────────────────────────────────
-SCORE=$(awk '
-  { if (NF < 3) exit 0; w += $3 * $2; s += $2 }
-  END { if (s > 0) printf "%d\n", w / s * 100 }
-' .patina/tmp || true)
-rm -f .patina/tmp
+# survival-weighted average: R = Σ(Craft × lines) / Σ(lines)
+score=$(
+  awk '
+    NR==FNR { scores[$1] = $2; next }
+    !($1 in scores) { exit }
+    { weights += $2 * scores[$1]; lines += $2 }
+    END { if (lines > 0) printf "%d\n", weights / lines * 100 }
+  ' <(echo "$scores") <(echo "$blames")
+)
 
-# ── Generate Badge ─────────────────────────────────────────────────
-if [ -z "$SCORE" ]; then
+if [ -z "$score" ]; then
   sed "s/100%/—%/g" badge.svg > .patina/badge.svg
 else
-  sed "s/100%/${SCORE}%/g" badge.svg > .patina/badge.svg
+  sed "s/100%/${score}%/g" badge.svg > .patina/badge.svg
 fi
