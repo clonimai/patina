@@ -3,12 +3,30 @@ set -euo pipefail
 
 mkdir -p .patina
 
+# Logging
+log()  { echo "[info]  $*"; }
+elog() { echo "[error] $*" >&2; }
+dlog() {
+  if [ "${ACTIONS_STEP_DEBUG:-false}" = true ]; then
+    echo "[debug] $*" >&2
+  fi
+}
+
 # blame all tracked files, keep only hash column
+# stderr visible — binary/submodule failures show in output
 raw=$(
   git ls-files -z |
-  xargs -0 -n 1 git blame HEAD -- 2>/dev/null |
+  xargs -0 -r -n 1 git blame HEAD -- |
   cut -d' ' -f1
 )
+dlog "raw: $(echo "$raw" | wc -l) blame lines"
+
+# empty blame → no files, all binary, or no commits → fallback to —%
+if [ -z "$raw" ]; then
+  elog "no blamable content"
+  sed "s/100%/—%/g" badge.svg > .patina/badge.svg
+  exit
+fi
 
 # hash length: first line total width; if ^ found, blame inflated by 1
 len=$(
@@ -18,6 +36,7 @@ len=$(
     END     { print l }
   ' <<< "$raw"
 )
+dlog "len: hash width = $len"
 
 # strip ^ → truncate to len → count surviving lines per commit
 blames=$(
@@ -28,6 +47,7 @@ blames=$(
   ' <<< "$raw"
 )
 
+dlog "blames: $(echo "$blames" | wc -l) unique commits"
 unset raw
 
 # look up Craft trailer for each commit, filter valid [0,1] values
@@ -42,6 +62,7 @@ scores=$(
     }
   '
 )
+dlog "scores: $(echo "$scores" | wc -l) commits with Craft"
 
 # survival-weighted average: R = Σ(Craft × lines) / Σ(lines)
 score=$(
@@ -54,7 +75,9 @@ score=$(
 )
 
 if [ -z "$score" ]; then
+  log "score: —%"
   sed "s/100%/—%/g" badge.svg > .patina/badge.svg
 else
+  log "score: $score%"
   sed "s/100%/${score}%/g" badge.svg > .patina/badge.svg
 fi
