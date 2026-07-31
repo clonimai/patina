@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+template=badge.svg   # SVG 模板，必须恰好含一处 100% 占位符
+
 mkdir -p .patina
 
 # Logging (##[debug]/##[error] parsed by GHA runner)
@@ -20,7 +22,7 @@ dlog "raw: total blame lines = $(echo "$raw" | wc -l)"
 # empty blame → no files, all binary, or no commits → fallback to —%
 if [ -z "$raw" ]; then
   elog "no blamable content"
-  sed "s/100%/—%/g" badge.svg > .patina/badge.svg
+  sed "s/100%/—%/" "$template" > .patina/badge.svg
   exit
 fi
 
@@ -71,8 +73,8 @@ score=$(
 
 if [ -z "$score" ]; then
   log "score: —%"
-  sed "s/100%/—%/g" badge.svg > .patina/badge.svg
+  sed "s/100%/—%/" "$template" > .patina/badge.svg
 else
   log "score: $score%"
-  sed "s/100%/${score}%/g" badge.svg > .patina/badge.svg
+  sed "s/100%/${score}%/" "$template" > .patina/badge.svg
 fi
