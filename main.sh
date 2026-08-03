@@ -88,14 +88,12 @@ cache_validate() {
     fi
 }
 
-# Commit the updated cache into the refs/patina chain and push it — cache lives
-# only in the ref, never on the CDN. Commands target the .patina worktree via
-# -C. Unchanged cache returns early; the push is a top-level statement so a
-# failure aborts the run (a failing push inside if/then is exempt from set -e
-# and would be silently swallowed).
+# Commit the updated cache to refs/patina and push it (cache lives only in the
+# ref, never the CDN). -C targets the .patina worktree; the push is a top-level
+# statement so a failure aborts the run (inside if/then it would be exempt).
 cache_commit() {
     git -C .patina add cache
-    if git -C .patina diff --cached; then
+    if git -C .patina diff --cached --exit-code; then
         return   # unchanged — nothing to commit or push
     fi
     git -C .patina commit -m "" </dev/null
