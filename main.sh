@@ -89,18 +89,15 @@ cache_validate() {
 }
 
 # Commit the updated cache into the refs/patina chain and push it — cache lives
-# only in the ref, never on the CDN. Subshell keeps .patina cwd local; detached
-# HEAD means refs/patina is moved to the new commit explicitly.
+# only in the ref, never on the CDN. Commands target the .patina worktree via
+# -C; detached HEAD means refs/patina is moved to the new commit explicitly.
 cache_commit() {
-    (
-        cd .patina
-        git add cache
-        if ! git diff --cached; then
-            git commit -m "" </dev/null
-            git update-ref refs/patina HEAD
-            git push origin refs/patina:refs/patina
-        fi
-    )
+    git -C .patina add cache
+    if ! git -C .patina diff --cached; then
+        git -C .patina commit -m "" </dev/null
+        git -C .patina update-ref refs/patina HEAD
+        git -C .patina push origin refs/patina:refs/patina
+    fi
 }
 
 # Render the badge from the cur_cache header final-score; "—" → "—%".
