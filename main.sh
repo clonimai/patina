@@ -96,7 +96,7 @@ cache_commit() {
     if git -C .patina diff --cached --exit-code; then
         return   # unchanged — nothing to commit or push
     fi
-    git -C .patina commit -m "" </dev/null
+    git -C .patina commit --allow-empty-message -m "" </dev/null
     git -C .patina update-ref refs/patina HEAD
     git -C .patina push origin refs/patina:refs/patina
 }
