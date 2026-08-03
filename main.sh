@@ -121,6 +121,8 @@ cache_validate() {
 # Commit the updated cache to the refs/patina chain and push it. -C targets the
 # worktree; the push is a top-level statement so a failure aborts the run (a
 # failing push inside if/then would be exempt from set -e and silently dropped).
+# The chain grows only from human commits: amend our own CI commit, append after
+# a human one (distinguished by committer email).
 cache_commit() {
     git -C .patina add cache
 
@@ -129,10 +131,17 @@ cache_commit() {
         return
     fi
 
-    git -C .patina commit --allow-empty-message -m "" </dev/null
+    if [ "$(git -C .patina show -s --format=%an refs/patina)" = "github-actions[bot]" ]; then
+        git -C .patina commit --amend --allow-empty-message -m "" </dev/null
+        dlog "patina: cache amended (after CI commit)"
+    else
+        git -C .patina commit --allow-empty-message -m "" </dev/null
+        dlog "patina: cache committed (after human commit)"
+    fi
+
     git -C .patina update-ref refs/patina HEAD
-    git -C .patina push origin refs/patina:refs/patina
-    dlog "patina: cache committed and pushed"
+    git -C .patina push --force origin refs/patina:refs/patina
+    dlog "patina: cache pushed (force)"
 }
 
 # Render the badge from the cur_cache header final-score; "—" → "—%".
@@ -152,21 +161,18 @@ badge_generate() {
 }
 
 # --- Mode detection: decide full vs incremental, read the previous cache ---
-SECONDS=0
 patina_setup
-dlog "patina: setup (${SECONDS}s)"
 
 full_mode=1
 prev_cache=""
 
 git worktree add --detach .patina refs/patina
 cache_validate
-dlog "patina: mode = $([ "$full_mode" = 0 ] && echo incremental || echo full) (${SECONDS}s)"
+dlog "patina: mode = $([ "$full_mode" = 0 ] && echo incremental || echo full)"
 dlog "patina: prev_cache = $([ -n "$prev_cache" ] && echo valid || echo empty)"
 
 # Full mode (incremental is a stub): prefetch blobs before the full blame.
 git backfill || :
-dlog "patina: backfill (${SECONDS}s)"
 
 # Surviving lines per commit. The `|| :` absorbs the expected blame failure on
 # an empty repo; the empty check below fails hard on it.
@@ -183,7 +189,7 @@ blames=$(
         END { for (i in lines) print i, lines[i] }
     '
 ) || :
-dlog "patina: blames = $(grep -c . <<< "$blames") commits (${SECONDS}s)"
+dlog "patina: blames = $(grep -c . <<< "$blames") commits"
 
 if [ -z "$blames" ]; then
     elog "patina: no blamable content"
@@ -210,7 +216,7 @@ scores=$(
         }
     ' <(echo "$prev_cache") -
 )
-dlog "patina: scores = $(grep -c . <<< "$scores") rows (${SECONDS}s)"
+dlog "patina: scores = $(grep -c . <<< "$scores") rows"
 
 cur_head=$(git rev-parse HEAD)
 
@@ -239,14 +245,12 @@ cur_cache=$(
     ' <(echo "$blames") <(echo "$scores")
 )
 echo "$cur_cache" > .patina/cache
-dlog "patina: cur_cache = $(grep -c . <<< "$cur_cache") rows (${SECONDS}s)"
+dlog "patina: cur_cache = $(grep -c . <<< "$cur_cache") rows"
 
 cache_commit
-dlog "patina: commit+push (${SECONDS}s)"
 
 # Worktree done — tear down, rebuild .patina as the output dir.
 git worktree remove --force .patina
 mkdir -p .patina
 
 badge_generate
-dlog "patina: badge (${SECONDS}s)"
