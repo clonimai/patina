@@ -46,13 +46,13 @@ cache_validate() {
         return
     fi
 
-    local prev_head
     prev_cache=$(cat .patina/cache)
-    prev_head=$(awk 'NR == 1 { print $1; exit }' <<< "$prev_cache")
+    read -r prev_head _ <<< "$prev_cache"
 
     # head must be a full-length hex hash; ancestry decides incremental vs full
     if [[ ! "$prev_head" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
         prev_cache=""
+        prev_head=""
         dlog "patina: bad cache head — full mode"
         return
     fi
@@ -88,6 +88,9 @@ cache_validate() {
             if ($1 !~ ("^[0-9a-f]{" l "}$")) {
                 dlog("row hash not " l "-hex: " $1)
                 bad = 1
+            } else if (system("git cat-file -e " $1 "^{commit}") != 0) {
+                dlog("row commit not resolvable: " $1)
+                bad = 1
             }
             if ($2 !~ /^[0-9]+$/ || $2 + 0 == 0) {
                 dlog("row lines invalid: " $2)
@@ -102,6 +105,10 @@ cache_validate() {
         }
         END {
             if (bad) exit 1
+            if (NR == 1) {
+                dlog("cache has no commit rows")
+                exit 1
+            }
             if (NR - 1 != count) {
                 dlog("row count mismatch: got " NR - 1 ", expect " count)
                 exit 1
@@ -113,6 +120,7 @@ cache_validate() {
         }
     ' <<< "$prev_cache"; then
         prev_cache=""
+        prev_head=""
         full_mode=1
         dlog "patina: cache integrity failed — dropped"
     fi
