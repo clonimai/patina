@@ -165,6 +165,90 @@ patina_warmup() {
     fi
 }
 
+blames_compute() {
+    if [ "$full_mode" != 0 ] || [ -z "$prev_cache" ]; then
+        git config --unset remote.origin.partialclonefilter &&
+        git fetch --refetch --no-tags --no-write-fetch-head \
+            --no-auto-maintenance --no-recurse-submodules origin || :
+        blames=$(
+            git ls-files -z |
+            xargs -0 -r -n 1 git blame --incremental --root HEAD -- |
+            awk '
+                BEGIN { filename = 1 }
+                $1 == "filename" { filename = 1; next }
+                filename {
+                    if ($1 !~ /^0+$/) lines[$1] += $4
+                    filename = 0
+                }
+                END { for (i in lines) print i, lines[i] }
+            '
+        ) || :
+        return
+    fi
+
+    patina_warmup
+
+    blames=$(
+        {
+            # 常规文件：diff → hunk 解析 → blame 参数流 (file rev side largs)
+            git diff -U0 --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
+            awk -v prev_head="$prev_head" '
+                /^diff --git / { f = substr($0, 14, length($0) / 2 - 8) }
+                /^@@ / {
+                    sub(/^[-+]/, "", $2); sub(/^[-+]/, "", $3)
+                    if ($2 !~ /,/) $2 = $2 ",1"
+                    if ($3 !~ /,/) $3 = $3 ",1"
+                    split($2, t, ",")
+                    if (t[2] > 0) oldarg[f] = oldarg[f] " -L " t[1] "," t[1] + t[2] - 1
+                    split($3, t, ",")
+                    if (t[2] > 0) newarg[f] = newarg[f] " -L " t[1] "," t[1] + t[2] - 1
+                }
+                END {
+                    for (f in newarg)
+                        printf "%s\0%s\0%s\0%s\0", f, prev_head "..HEAD", "+", newarg[f]
+                    for (f in oldarg)
+                        printf "%s\0%s\0%s\0%s\0", f, prev_head, "-", oldarg[f]
+                }'
+            # 二进制文件：numstat → 两侧参数流（整文件，无 -L）
+            git diff -z --numstat --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
+            awk -v prev_head="$prev_head" '
+                BEGIN { RS = "\0"; FS = "\t" }
+                $1 == "-" {
+                    f = $3
+                    printf "%s\0%s\0%s\0%s\0", f, prev_head, "-", ""
+                    printf "%s\0%s\0%s\0%s\0", f, "HEAD", "+", ""
+                }'
+        } |
+        # 外部执行 git blame；largs 空 = 二进制需判存在侧；SIDE 标记关联 +/-
+        xargs -0 -n 4 bash -c '
+            if [ -z "$4" ] && ! git ls-tree --name-only "$2" -- "$1" | grep -q .; then
+                :
+            else
+                echo "SIDE $3"
+                git blame --incremental --root $4 "$2" -- "$1"
+            fi
+        ' _ |
+        # 合并块：SIDE 设 side，filename 状态机解析 blame 流 → 事件
+        awk '
+            /^SIDE / { side = $2; next }
+            BEGIN { filename = 1 }
+            $1 == "filename" { filename = 1; next }
+            filename {
+                if ($1 !~ /^0+$/) print $1, side $4
+                filename = 0
+            }' |
+        # 差分：prev_cache 基线 + 事件
+        awk '
+            NR==FNR {
+                if (NR > 1) lines[$1] = $2
+                next
+            }
+            { lines[$1] += $2 }
+            END { for (c in lines) if (lines[c] > 0) print c, lines[c] }
+        ' <(echo "$prev_cache") -
+    ) || :
+}
+
 # Commit the updated cache to the refs/patina chain and push it. -C targets the
 # worktree; the push is a top-level statement so a failure aborts the run (a
 # failing push inside if/then would be exempt from set -e and silently dropped).
