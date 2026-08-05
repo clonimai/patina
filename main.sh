@@ -41,7 +41,8 @@ cache_validate() {
     prev_cache=$(cat .patina/cache)
     read -r prev_head _ <<< "$prev_cache"
 
-    if [[ ! "$prev_head" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
+    local l=${#prev_head}
+    if [[ ! "$prev_head" =~ ^[0-9a-f]+$ ]] || (( l != 40 && l != 64 )); then
         dlog "patina: bad cache head"
         return
     fi
@@ -51,55 +52,45 @@ cache_validate() {
         dlog "patina: prev_head is ancestor"
     fi
 
-    if ! awk -v l="${#prev_head}" '
+    if ! awk -v l="$l" '
         function dlog(msg) {
             print "##[debug]patina: " msg > "/dev/stderr"
         }
         NR == 1 {
             count = $2; sum_lines = $3
             if (count !~ /^[0-9]+$/ || sum_lines !~ /^[0-9]+$/) {
-                dlog("header count/sum_lines not numeric")
-                bad = 1
+                dlog("header count/sum_lines not numeric"); bad = 1
             }
             wd = ($4 == "—"); fd = ($5 == "—")
             wn = ($4 ~ /^[0-9]+(\.[0-9]+)?$/)
             fn = ($5 ~ /^[0-9]+(\.[0-9]+)?$/ && $5 + 0 <= 1)
             if (!((wd && fd) || (wn && fn))) {
-                dlog("header weights/final not paired")
-                bad = 1
+                dlog("header weights/final not paired"); bad = 1
             }
-            if (bad) exit
-            next
+            if (bad) exit; next
         }
         {
             if ($1 !~ ("^[0-9a-f]{" l "}$")) {
-                dlog("row hash not " l "-hex: " $1)
-                bad = 1
+                dlog("row hash not " l "-hex: " $1); bad = 1
             }
             if ($2 !~ /^[0-9]+$/ || $2 + 0 == 0) {
-                dlog("row lines invalid: " $2)
-                bad = 1
+                dlog("row lines invalid: " $2); bad = 1
             }
             if ($3 != "" && !($3 ~ /^[0-9]+(\.[0-9]+)?$/ && $3 + 0 <= 1)) {
-                dlog("row score invalid: " $3)
-                bad = 1
+                dlog("row score invalid: " $3); bad = 1
             }
-            if (bad) exit
-            sum += $2
+            if (bad) exit; sum += $2
         }
         END {
             if (bad) exit 1
             if (NR == 1) {
-                dlog("cache has no commit rows")
-                exit 1
+                dlog("cache has no commit rows"); exit 1
             }
             if (NR - 1 != count) {
-                dlog("row count mismatch: got " NR - 1 ", expect " count)
-                exit 1
+                dlog("count mismatch: got " NR - 1 ", expect " count); exit 1
             }
             if (sum != sum_lines) {
-                dlog("sum mismatch: got " sum ", expect " sum_lines)
-                exit 1
+                dlog("sum_lines mismatch: got " sum ", expect " sum_lines); exit 1
             }
         }
     ' <<< "$prev_cache"; then
@@ -118,7 +109,7 @@ cache_validate() {
 }
 
 patina_warmup() {
-    local floor FLOOR n_blobs batch_size
+    local floor FLOOR n_blobs batch_sz
     local -a files
 
     floor=$(
@@ -127,6 +118,8 @@ patina_warmup() {
         sed -n '1p'
     )
     FLOOR=$(git merge-base "$floor" "$prev_head")
+    dlog "patina: warmup floor = $floor"
+    dlog "patina: warmup FLOOR = $FLOOR"
 
     mapfile -d '' -t files < <(
         git diff -z --name-only \
@@ -138,7 +131,6 @@ patina_warmup() {
         --filter-provided-objects "$FLOOR..HEAD" -- "${files[@]}" |
         wc -l
     )
-    dlog "patina: warmup FLOOR = $FLOOR"
     dlog "patina: warmup number of blobs = $n_blobs"
 
     if [ "$n_blobs" -lt 100 ]; then
@@ -149,10 +141,9 @@ patina_warmup() {
         git fetch --refetch --no-tags --no-write-fetch-head \
             --no-auto-maintenance --no-recurse-submodules origin || :
     else
-        batch_size=100
-        [ "$n_blobs" -ge 1000 ] && batch_size=1000
-        dlog "patina: warmup backfill (batch_size=$batch_size)"
-        git backfill --min-batch-size="$batch_size" "$FLOOR..HEAD" -- "${files[@]}" || :
+        batch_sz=$(( n_blobs >= 1000 ? 1000 : 100 ))
+        dlog "patina: warmup backfill (batch size=$batch_sz)"
+        git backfill --min-batch-size="$batch_sz" "$FLOOR..HEAD" -- "${files[@]}" || :
     fi
 }
 
@@ -197,7 +188,8 @@ blames_compute() {
                     printf "%s\0%s\0%s\0%s\0", "+", new[f], prev_head "..HEAD", f
                 for (f in old)
                     printf "%s\0%s\0%s\0%s\0", "-", old[f], prev_head, f
-            }' |
+            }
+        ' |
         xargs -0 -n 4 bash -c '
             echo "$0"
             git blame --incremental --root $1 "$2" -- "$3"
@@ -268,12 +260,11 @@ dlog "patina: prev_cache = $(head -1 <<< "$prev_cache")"
 
 blames=""
 blames_compute
-dlog "patina: blames = $(grep -c . <<< "$blames") commits"
-
 if [ -z "$blames" ]; then
     elog "patina: no blamable content"
     exit 1
 fi
+dlog "patina: blames = $(wc -l <<< "$blames") commits"
 
 scores=$(
     cut -d' ' -f1 <<< "$blames" |
@@ -294,7 +285,7 @@ scores=$(
         }
     ' <(echo "$prev_cache") -
 )
-dlog "patina: scores = $(grep -c . <<< "$scores") rows"
+dlog "patina: scores = $(wc -l <<< "$scores") rows"
 
 cur_head=$(git rev-parse HEAD)
 
@@ -322,7 +313,7 @@ cur_cache=$(
     ' <(echo "$blames") <(echo "$scores")
 )
 echo "$cur_cache" > .patina/cache
-dlog "patina: cur_cache = $(grep -c . <<< "$cur_cache") rows"
+dlog "patina: cur_cache = $(head -1 <<< "$cur_cache")"
 
 cache_commit
 
