@@ -126,6 +126,45 @@ cache_validate() {
     fi
 }
 
+patina_warmup() {
+    local floor FLOOR n_blobs batch_size
+    local -a files
+
+    floor=$(
+        tail -n +2 <<< "$prev_cache" | cut -d' ' -f1 |
+        git log --no-walk --stdin --format='%H' --reverse |
+        head -1
+    )
+    FLOOR=$(git merge-base "$floor" "$prev_head")
+
+    mapfile -d '' -t files < <(
+        git diff -z --name-only \
+        --no-color --no-renames --no-ext-diff \
+        "$prev_head" HEAD
+    )
+    n_blobs=$(
+        git rev-list --objects --filter=object:type=blob \
+        --filter-provided-objects "$FLOOR..HEAD" -- "${files[@]}" |
+        wc -l
+    )
+    dlog "patina: warmup FLOOR = $FLOOR"
+    dlog "patina: warmup number of blobs = $n_blobs"
+
+    if [ "$n_blobs" -lt 100 ]; then
+        dlog "patina: warmup skip"
+    elif [ "$n_blobs" -ge 10000 ]; then
+        dlog "patina: warmup refetch"
+        git config --unset remote.origin.partialclonefilter &&
+        git fetch --refetch --no-tags --no-write-fetch-head \
+            --no-auto-maintenance --no-recurse-submodules origin || :
+    else
+        batch_size=100
+        [ "$n_blobs" -ge 1000 ] && batch_size=1000
+        dlog "patina: warmup backfill (batch_size=$batch_size)"
+        git backfill --min-batch-size="$batch_size" "$FLOOR..HEAD" -- "${files[@]}" || :
+    fi
+}
+
 # Commit the updated cache to the refs/patina chain and push it. -C targets the
 # worktree; the push is a top-level statement so a failure aborts the run (a
 # failing push inside if/then would be exempt from set -e and silently dropped).
