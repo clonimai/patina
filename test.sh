@@ -101,7 +101,7 @@ newrepo G; putcache G badpair;   check G 1 EMPTY 0  # weights/final pairing brok
 newrepo H; putcache H badshort;  check H 1 EMPTY 0  # 8-hex head → pass1 length reject
 newrepo I; putcache I badscore;  check I 1 EMPTY 0  # row score invalid → pass2 drop
 newrepo J; putcache J empty;     check J 1 EMPTY 0  # empty cache file → full
-newrepo K; putcache K sha256;    check K 1 KEPT 2   # 64-bit head, is-ancestor 128 → full, data kept
+newrepo K; putcache K sha256;    check K 1 EMPTY 0   # 64-bit head, is-ancestor 128 → full; fake body fails git commit check
 newrepo L; putcache L partial;   check L 0 KEPT 1   # partial unscored → incremental, 1 filled
 
 [ "$fail" = 0 ] && echo "ALL PASS"
