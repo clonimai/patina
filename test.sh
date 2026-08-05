@@ -93,15 +93,15 @@ nocache() {
 
 newrepo A; check A 1 EMPTY 0      # no refs/patina → seed → no cache → full
 newrepo B; putcache B ok;        check B 0 KEPT 2   # valid cache, head ancestor → incremental
-newrepo C; putcache C badhead;   check C 1 EMPTY 0  # head not hex → pass1 drop
-newrepo D; putcache D badlines;  check D 1 EMPTY 0  # sum_lines mismatch → pass2 drop
+newrepo C; putcache C badhead;   check C 1 KEPT 2   # head not hex → full, cache kept
+newrepo D; putcache D badlines;  check D 1 KEPT 2   # sum_lines mismatch → full, cache kept
 newrepo E; nocache E;            check E 1 EMPTY 0  # refs/patina present, no cache → full
-newrepo F; putcache F badcount;  check F 1 EMPTY 0  # count not numeric → header bad
-newrepo G; putcache G badpair;   check G 1 EMPTY 0  # weights/final pairing broken → header bad
-newrepo H; putcache H badshort;  check H 1 EMPTY 0  # 8-hex head → pass1 length reject
-newrepo I; putcache I badscore;  check I 1 EMPTY 0  # row score invalid → pass2 drop
+newrepo F; putcache F badcount;  check F 1 KEPT 2   # count not numeric → full, cache kept
+newrepo G; putcache G badpair;   check G 1 KEPT 2   # weights/final pairing broken → full, cache kept
+newrepo H; putcache H badshort;  check H 1 KEPT 2   # 8-hex head → full, cache kept
+newrepo I; putcache I badscore;  check I 1 KEPT 2   # row score invalid → full, cache kept
 newrepo J; putcache J empty;     check J 1 EMPTY 0  # empty cache file → full
-newrepo K; putcache K sha256;    check K 1 EMPTY 0   # 64-bit head, is-ancestor 128 → full; fake body fails git commit check
+newrepo K; putcache K sha256;    check K 1 KEPT 2   # 64-bit head; fake body unresolvable → pass2 full
 newrepo L; putcache L partial;   check L 0 KEPT 1   # partial unscored → incremental, 1 filled
 
 [ "$fail" = 0 ] && echo "ALL PASS"

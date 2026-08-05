@@ -34,27 +34,23 @@ patina_setup() {
 
 cache_validate() {
     if [ ! -f .patina/cache ]; then
-        dlog "patina: no cache — full mode"
+        dlog "patina: no cache"
         return
     fi
 
     prev_cache=$(cat .patina/cache)
     read -r prev_head _ <<< "$prev_cache"
 
-    # head must be a full-length hex hash; ancestry decides incremental vs full
     if [[ ! "$prev_head" =~ ^([0-9a-f]{40}|[0-9a-f]{64})$ ]]; then
-        prev_cache=""
-        prev_head=""
-        dlog "patina: bad cache head — full mode"
+        dlog "patina: bad cache head"
         return
     fi
 
     if git merge-base --is-ancestor "$prev_head" HEAD; then
         full_mode=0
+        dlog "patina: prev_head is ancestor"
     fi
 
-    # integrity: header numbers, weighted/final pairing, row shapes, and the
-    # count/sum_lines reconciliation must all hold (single exit-1 in END)
     if ! awk -v l="${#prev_head}" '
         function dlog(msg) {
             print "##[debug]patina: " msg > "/dev/stderr"
@@ -65,10 +61,9 @@ cache_validate() {
                 dlog("header count/sum_lines not numeric")
                 bad = 1
             }
-            w = $4; f = $5
-            wd = (w == "—"); fd = (f == "—")
-            wn = (w ~ /^[0-9]+(\.[0-9]+)?$/)
-            fn = (f ~ /^[0-9]+(\.[0-9]+)?$/ && f + 0 <= 1)
+            wd = ($4 == "—"); fd = ($5 == "—")
+            wn = ($4 ~ /^[0-9]+(\.[0-9]+)?$/)
+            fn = ($5 ~ /^[0-9]+(\.[0-9]+)?$/ && $5 + 0 <= 1)
             if (!((wd && fd) || (wn && fn))) {
                 dlog("header weights/final not paired")
                 bad = 1
@@ -79,9 +74,6 @@ cache_validate() {
         {
             if ($1 !~ ("^[0-9a-f]{" l "}$")) {
                 dlog("row hash not " l "-hex: " $1)
-                bad = 1
-            } else if (system("git cat-file -e " $1 "^{commit}") != 0) {
-                dlog("row commit not resolvable: " $1)
                 bad = 1
             }
             if ($2 !~ /^[0-9]+$/ || $2 + 0 == 0) {
@@ -111,10 +103,17 @@ cache_validate() {
             }
         }
     ' <<< "$prev_cache"; then
-        prev_cache=""
-        prev_head=""
         full_mode=1
-        dlog "patina: cache integrity failed — dropped"
+        dlog "patina: cache integrity failed"
+        return
+    fi
+
+    if tail -n +2 <<< "$prev_cache" | cut -d' ' -f1 |
+        sed 's/$/^{commit}/' |
+        git cat-file --batch-check |
+        grep -q 'missing$'; then
+        full_mode=1
+        dlog "patina: cache has unresolvable commit"
     fi
 }
 
@@ -182,7 +181,6 @@ blames_compute() {
 
     blames=$(
         {
-            # 常规文件：diff → hunk 解析 → blame 参数流 (file rev side largs)
             git diff -U0 --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
             awk -v prev_head="$prev_head" '
                 /^diff --git / { f = substr($0, 14, length($0) / 2 - 8) }
@@ -201,7 +199,6 @@ blames_compute() {
                     for (f in oldarg)
                         printf "%s\0%s\0%s\0%s\0", f, prev_head, "-", oldarg[f]
                 }'
-            # 二进制文件：numstat → 两侧参数流（整文件，无 -L）
             git diff -z --numstat --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
             awk -v prev_head="$prev_head" '
                 BEGIN { RS = "\0"; FS = "\t" }
@@ -211,7 +208,6 @@ blames_compute() {
                     printf "%s\0%s\0%s\0%s\0", f, "HEAD", "+", ""
                 }'
         } |
-        # 外部执行 git blame；largs 空 = 二进制需判存在侧；SIDE 标记关联 +/-
         xargs -0 -n 4 bash -c '
             if [ -z "$4" ] && ! git ls-tree --name-only "$2" -- "$1" | grep -q .; then
                 :
@@ -220,7 +216,6 @@ blames_compute() {
                 git blame --incremental --root $4 "$2" -- "$1"
             fi
         ' _ |
-        # 合并块：SIDE 设 side，filename 状态机解析 blame 流 → 事件
         awk '
             /^SIDE / { side = $2; next }
             BEGIN { filename = 1 }
@@ -229,7 +224,6 @@ blames_compute() {
                 if ($1 !~ /^0+$/) print $1, side $4
                 filename = 0
             }' |
-        # 差分：prev_cache 基线 + 事件
         awk '
             NR==FNR {
                 if (NR > 1) lines[$1] = $2
@@ -286,8 +280,7 @@ prev_head=""
 git worktree add --detach .patina refs/patina
 cache_validate
 dlog "patina: mode = $([ "$full_mode" = 0 ] && echo incremental || echo full)"
-dlog "patina: prev_cache = $([ -n "$prev_cache" ] && echo valid || echo empty)"
-dlog "patina: prev_head = ${prev_head:-empty}"
+dlog "patina: prev_cache = $(head -1 <<< "$prev_cache")"
 
 blames=""
 blames_compute
