@@ -7,6 +7,7 @@ log()  { echo "patina: $*"; }
 elog() { echo "##[error]patina: $*" >&2; }
 dlog() { echo "##[debug]patina: $*" >&2; }
 
+# Seed or sync refs/patina so the worktree checkout has a target to attach.
 patina_setup() {
     git config user.name "github-actions[bot]"
     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -32,6 +33,7 @@ patina_setup() {
     fi
 }
 
+# Validate the cached commit count; a broken cache degrades to a full run.
 cache_validate() {
     if [ ! -f .patina/cache ]; then
         log "no cache"
@@ -52,6 +54,8 @@ cache_validate() {
         dlog "prev_head is ancestor"
     fi
 
+    # Structural checks: header numbers, weights/final pairing, row shapes,
+    # and count/sum_lines reconciliation must hold (single exit-1 in END).
     if ! awk -v l="$l" '
         function dlog(msg) {
             print "patina: " msg
@@ -99,6 +103,8 @@ cache_validate() {
         return
     fi
 
+    # Every row hash must resolve to a commit;
+    # one batched check replaces the per-row cat-file probes.
     if tail -n +2 <<< "$prev_cache" | cut -d' ' -f1 |
         sed 's/$/^{commit}/' |
         git cat-file --batch-check |
@@ -108,10 +114,13 @@ cache_validate() {
     fi
 }
 
+# Prefetch blobs since the floor, laddered by count: skip, backfill, refetch.
+# A failed backfill falls through to refetch.
 patina_warmup() {
     local floor FLOOR n_blobs
     local -a files
 
+    # floor = earliest cached commit; FLOOR = merge-base(floor, prev_head).
     floor=$(
         tail -n +2 <<< "$prev_cache" | cut -d' ' -f1 |
         git log --no-walk --stdin --format='%H' --reverse |
@@ -133,6 +142,7 @@ patina_warmup() {
     )
     dlog "warmup number of blobs = $n_blobs"
 
+    # Ladder: <100 skip, <1000 batch 100, <10000 batch 1000, else refetch.
     if [ "$n_blobs" -lt 100 ]; then
         dlog "warmup skip"
         return
@@ -152,7 +162,9 @@ patina_warmup() {
     dlog "warmup refetch failed — relying on lazy fetch"
 }
 
+# Full blame at HEAD, or an incremental diff->blame delta on the baseline.
 blames_compute() {
+    # Full mode: refetch all blobs, then blame every tracked file at HEAD.
     if [ "$full_mode" != 0 ] || [ -z "$prev_cache" ]; then
         git config --unset remote.origin.partialclonefilter &&
         git fetch --refetch --no-tags --no-write-fetch-head \
@@ -177,6 +189,7 @@ blames_compute() {
     patina_warmup
 
     blames=$(
+        # Parse diff hunks into -L blame args; param tuple: side largs rev file.
         git diff -U0 --text --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
         awk -v prev_head="$prev_head" '
             $1 == "diff" { f = substr($0, 14, length($0) / 2 - 8) }
@@ -196,10 +209,13 @@ blames_compute() {
                     printf "%s\0%s\0%s\0%s\0", "-", old[f], prev_head, f
             }
         ' |
+        # External blame per tuple; the +/- marker prefixes each stream.
         xargs -0 -n 4 bash -c '
             echo "$0"
             git blame --incremental --root $1 "$2" -- "$3"
         ' |
+        # State machine: +/- sets side, filename anchors each blame chunk,
+        # and NR==FNR loads the baseline so events delta it in one pass.
         awk '
             BEGIN { filename = 1 }
             NR==FNR {
@@ -217,6 +233,7 @@ blames_compute() {
     ) || :
 }
 
+# Commit the new cache onto refs/patina; amend when the tip is CI-authored.
 cache_commit() {
     git -C .patina add cache
 
@@ -225,7 +242,8 @@ cache_commit() {
         return
     fi
 
-    if [ "$(git -C .patina show -s --format=%an refs/patina)" = "github-actions[bot]" ]; then
+    if [ "$(git -C .patina show -s --format=%an refs/patina)" = \
+        "github-actions[bot]" ]; then
         git -C .patina commit --amend --allow-empty-message -m "" </dev/null
         dlog "cache amended (after CI commit)"
     else
@@ -238,6 +256,7 @@ cache_commit() {
     dlog "cache pushed (force)"
 }
 
+# Render the final score into the SVG template.
 badge_generate() {
     local pct
     pct=$(
@@ -253,6 +272,7 @@ badge_generate() {
     sed "s/100%/${pct}%/" "$template" > .patina/badge.svg
 }
 
+# --- main pipeline ---
 patina_setup
 
 full_mode=1
@@ -272,6 +292,7 @@ if [ -z "$blames" ]; then
 fi
 dlog "blames = $(wc -l <<< "$blames") commits"
 
+# Attach a Craft score per blamed commit: the trailer, else the cached value.
 scores=$(
     cut -d' ' -f1 <<< "$blames" |
     xargs -r git log --no-walk \
@@ -295,6 +316,7 @@ dlog "scores = $(wc -l <<< "$scores") rows"
 
 cur_head=$(git rev-parse HEAD)
 
+# Aggregate blames into the next cache file: weighted rows plus header.
 cur_cache=$(
     awk -v head="$cur_head" '
         NR==FNR { lines[$1] = $2; next }
