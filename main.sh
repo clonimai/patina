@@ -192,7 +192,13 @@ blames_compute() {
         # Parse diff hunks into -L blame args; param tuple: side largs rev file.
         git diff -U0 --text --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
         awk -v prev_head="$prev_head" '
-            $1 == "diff" { f = substr($0, 14, length($0) / 2 - 8) }
+            $1 == "diff" {
+                # Quoted paths bisect from 15; plain keep the fixed offset.
+                if ($3 ~ /^"/)
+                    f = substr($0, 15, length($0) / 2 - 10)
+                else
+                    f = substr($0, 14, length($0) / 2 - 8)
+            }
             $1 == "@@" {
                 sub(/^[-+]/, "", $2); sub(/^[-+]/, "", $3)
                 if ($2 !~ /,/) $2 = $2 ",1"
@@ -210,9 +216,10 @@ blames_compute() {
             }
         ' |
         # External blame per tuple; the +/- marker prefixes each stream.
+        # C-style escapes in the file arg are unquoted before blame.
         xargs -0 -n 4 bash -c '
             echo "$0"
-            git blame --incremental --root $1 "$2" -- "$3"
+            git blame --incremental --root $1 "$2" -- "$(printf "%b" "$3")"
         ' |
         # State machine: +/- sets side, filename anchors each blame chunk,
         # and NR==FNR loads the baseline so events delta it in one pass.
