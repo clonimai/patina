@@ -109,7 +109,7 @@ cache_validate() {
 }
 
 patina_warmup() {
-    local floor FLOOR n_blobs batch_sz
+    local floor FLOOR n_blobs
     local -a files
 
     floor=$(
@@ -135,16 +135,18 @@ patina_warmup() {
 
     if [ "$n_blobs" -lt 100 ]; then
         dlog "patina: warmup skip"
-    elif [ "$n_blobs" -ge 10000 ]; then
-        dlog "patina: warmup refetch"
-        git config --unset remote.origin.partialclonefilter &&
-        git fetch --refetch --no-tags --no-write-fetch-head \
-            --no-auto-maintenance --no-recurse-submodules origin || :
-    else
-        batch_sz=$(( n_blobs >= 1000 ? 1000 : 100 ))
-        dlog "patina: warmup backfill (batch size=$batch_sz)"
-        git backfill --min-batch-size="$batch_sz" "$FLOOR..HEAD" -- "${files[@]}" || :
+        return
+    elif [ "$n_blobs" -lt 1000 ]; then
+        dlog "patina: warmup backfill (batch = 100)"
+        git backfill --min-batch-size=100 "$FLOOR..HEAD" -- "${files[@]}" && return
+    elif [ "$n_blobs" -lt 10000 ]; then
+        dlog "patina: warmup backfill (batch = 1000)"
+        git backfill --min-batch-size=1000 "$FLOOR..HEAD" -- "${files[@]}" && return
     fi
+    dlog "patina: warmup refetch"
+    git config --unset remote.origin.partialclonefilter &&
+    git fetch --refetch --no-tags --no-write-fetch-head \
+        --no-auto-maintenance --no-recurse-submodules origin || :
 }
 
 blames_compute() {
