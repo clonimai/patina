@@ -1,18 +1,12 @@
 #!/usr/bin/env bash
-# Patina craft-score cache pipeline, sourced by CI. State passes through shell
-# variables; the cache is distributed via the refs/patina chain, not the CDN.
 set -euo pipefail
 
-template=badge.svg  # SVG template with exactly one "100%" placeholder
+template=badge.svg
 
-# GHA-native logging: ##[debug]/##[error] parsed by the runner
 log()  { echo "$*"; }
 elog() { echo "##[error]$*" >&2; }
 dlog() { echo "##[debug]$*" >&2; }
 
-# Make refs/patina a valid local commit: seed when missing, fetch+sync when
-# present (reseed if the remote ref is not a commit). The runner has no git
-# identity, so it is configured first.
 patina_setup() {
     git config user.name "github-actions[bot]"
     git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -38,8 +32,6 @@ patina_setup() {
     fi
 }
 
-# Validate the checked-out cache at .patina/cache: head shape + ancestry decide
-# full_mode; integrity keeps prev_cache or drops it (a bad cache → full mode).
 cache_validate() {
     if [ ! -f .patina/cache ]; then
         dlog "patina: no cache — full mode"
@@ -249,11 +241,6 @@ blames_compute() {
     ) || :
 }
 
-# Commit the updated cache to the refs/patina chain and push it. -C targets the
-# worktree; the push is a top-level statement so a failure aborts the run (a
-# failing push inside if/then would be exempt from set -e and silently dropped).
-# The chain grows only from human commits: amend our own CI commit, append after
-# a human one (distinguished by committer email).
 cache_commit() {
     git -C .patina add cache
 
@@ -275,7 +262,6 @@ cache_commit() {
     dlog "patina: cache pushed (force)"
 }
 
-# Render the badge from the cur_cache header final-score; "—" → "—%".
 badge_generate() {
     local pct
     pct=$(
@@ -291,7 +277,6 @@ badge_generate() {
     sed "s/100%/${pct}%/" "$template" > .patina/badge.svg
 }
 
-# --- Mode detection: decide full vs incremental, read the previous cache ---
 patina_setup
 
 full_mode=1
@@ -313,7 +298,6 @@ if [ -z "$blames" ]; then
     exit 1
 fi
 
-# Per-commit scores: trailer Craft, falling back to human-filled prev_cache.
 scores=$(
     cut -d' ' -f1 <<< "$blames" |
     xargs -r git log --no-walk \
@@ -337,7 +321,6 @@ dlog "patina: scores = $(grep -c . <<< "$scores") rows"
 
 cur_head=$(git rev-parse HEAD)
 
-# Assemble the fresh cache into the mounted worktree, then push via the chain.
 cur_cache=$(
     awk -v head="$cur_head" '
         NR==FNR { lines[$1] = $2; next }
@@ -366,7 +349,6 @@ dlog "patina: cur_cache = $(grep -c . <<< "$cur_cache") rows"
 
 cache_commit
 
-# Worktree done — tear down, rebuild .patina as the output dir.
 git worktree remove --force .patina
 mkdir -p .patina
 
