@@ -124,7 +124,7 @@ patina_warmup() {
     floor=$(
         tail -n +2 <<< "$prev_cache" | cut -d' ' -f1 |
         git log --no-walk --stdin --format='%H' --reverse |
-        head -1
+        sed -n '1p'
     )
     FLOOR=$(git merge-base "$floor" "$prev_head")
 
