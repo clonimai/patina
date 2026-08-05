@@ -7,7 +7,7 @@ trap 'rm -rf "$T" "$MODE"' EXIT
 
 # Extract the mode-detection section (up to the prev_cache dlog) and append an
 # assertion printing full_mode / prev_cache / filled (scored rows in prev_cache).
-sed -n '1,/^dlog "patina: prev_cache/p' "$MAIN" > "$MODE"
+sed -n '1,/^dlog "prev_cache/p' "$MAIN" > "$MODE"
 cat >> "$MODE" <<'ASSERT'
 printf 'RESULT full_mode=%s prev_cache=%s filled=%s\n' \
     "$full_mode" \

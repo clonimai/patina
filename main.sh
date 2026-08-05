@@ -3,9 +3,9 @@ set -euo pipefail
 
 template=badge.svg
 
-log()  { echo "$*"; }
-elog() { echo "##[error]$*" >&2; }
-dlog() { echo "##[debug]$*" >&2; }
+log()  { echo "patina: $*"; }
+elog() { echo "##[error]patina: $*" >&2; }
+dlog() { echo "##[debug]patina: $*" >&2; }
 
 patina_setup() {
     git config user.name "github-actions[bot]"
@@ -18,23 +18,23 @@ patina_setup() {
 
     if [ -z "$o" ]; then
         git update-ref refs/patina "$seed_commit"
-        dlog "patina: refs/patina missing — seeded"
+        dlog "refs/patina missing — seeded"
         return
     fi
 
     git fetch --no-tags origin +refs/patina:refs/remotes/origin/patina
     if git rev-parse --verify refs/remotes/origin/patina^{commit}; then
         git update-ref refs/patina refs/remotes/origin/patina
-        dlog "patina: refs/patina synced"
+        dlog "refs/patina synced"
     else
         git update-ref refs/patina "$seed_commit"
-        dlog "patina: remote ref not a commit — reseeded"
+        dlog "remote ref not a commit — reseeded"
     fi
 }
 
 cache_validate() {
     if [ ! -f .patina/cache ]; then
-        dlog "patina: no cache"
+        log "no cache"
         return
     fi
 
@@ -43,18 +43,18 @@ cache_validate() {
 
     local l=${#prev_head}
     if [[ ! "$prev_head" =~ ^[0-9a-f]+$ ]] || (( l != 40 && l != 64 )); then
-        dlog "patina: bad cache head"
+        log "bad cache head"
         return
     fi
 
     if git merge-base --is-ancestor "$prev_head" HEAD; then
         full_mode=0
-        dlog "patina: prev_head is ancestor"
+        dlog "prev_head is ancestor"
     fi
 
     if ! awk -v l="$l" '
         function dlog(msg) {
-            print "##[debug]patina: " msg > "/dev/stderr"
+            print "patina: " msg
         }
         NR == 1 {
             count = $2; sum_lines = $3
@@ -71,13 +71,13 @@ cache_validate() {
         }
         {
             if ($1 !~ ("^[0-9a-f]{" l "}$")) {
-                dlog("row hash not " l "-hex: " $1); bad = 1
+                dlog("row hash not " l "-hex = " $1); bad = 1
             }
             if ($2 !~ /^[0-9]+$/ || $2 + 0 == 0) {
-                dlog("row lines invalid: " $2); bad = 1
+                dlog("row lines invalid = " $2); bad = 1
             }
             if ($3 != "" && !($3 ~ /^[0-9]+(\.[0-9]+)?$/ && $3 + 0 <= 1)) {
-                dlog("row score invalid: " $3); bad = 1
+                dlog("row score invalid = " $3); bad = 1
             }
             if (bad) exit; sum += $2
         }
@@ -95,7 +95,7 @@ cache_validate() {
         }
     ' <<< "$prev_cache"; then
         full_mode=1
-        dlog "patina: cache integrity failed"
+        log "cache integrity failed"
         return
     fi
 
@@ -104,7 +104,7 @@ cache_validate() {
         git cat-file --batch-check |
         grep -q 'missing$'; then
         full_mode=1
-        dlog "patina: cache has unresolvable commit"
+        log "cache has unresolvable commit"
     fi
 }
 
@@ -118,8 +118,8 @@ patina_warmup() {
         sed -n '1p'
     )
     FLOOR=$(git merge-base "$floor" "$prev_head")
-    dlog "patina: warmup floor = $floor"
-    dlog "patina: warmup FLOOR = $FLOOR"
+    dlog "warmup floor = $floor"
+    dlog "warmup FLOOR = $FLOOR"
 
     mapfile -d '' -t files < <(
         git diff -z --name-only \
@@ -131,29 +131,33 @@ patina_warmup() {
         --filter-provided-objects "$FLOOR..HEAD" -- "${files[@]}" |
         wc -l
     )
-    dlog "patina: warmup number of blobs = $n_blobs"
+    dlog "warmup number of blobs = $n_blobs"
 
     if [ "$n_blobs" -lt 100 ]; then
-        dlog "patina: warmup skip"
+        dlog "warmup skip"
         return
     elif [ "$n_blobs" -lt 1000 ]; then
-        dlog "patina: warmup backfill (batch = 100)"
+        dlog "warmup backfill (batch = 100)"
         git backfill --min-batch-size=100 "$FLOOR..HEAD" -- "${files[@]}" && return
+        dlog "warmup backfill failed"
     elif [ "$n_blobs" -lt 10000 ]; then
-        dlog "patina: warmup backfill (batch = 1000)"
+        dlog "warmup backfill (batch = 1000)"
         git backfill --min-batch-size=1000 "$FLOOR..HEAD" -- "${files[@]}" && return
+        dlog "warmup backfill failed"
     fi
-    dlog "patina: warmup refetch"
+    dlog "warmup refetch"
     git config --unset remote.origin.partialclonefilter &&
     git fetch --refetch --no-tags --no-write-fetch-head \
-        --no-auto-maintenance --no-recurse-submodules origin || :
+        --no-auto-maintenance --no-recurse-submodules origin ||
+    dlog "warmup refetch failed — relying on lazy fetch"
 }
 
 blames_compute() {
     if [ "$full_mode" != 0 ] || [ -z "$prev_cache" ]; then
         git config --unset remote.origin.partialclonefilter &&
         git fetch --refetch --no-tags --no-write-fetch-head \
-            --no-auto-maintenance --no-recurse-submodules origin || :
+            --no-auto-maintenance --no-recurse-submodules origin ||
+        dlog "full refetch failed — relying on lazy fetch"
         blames=$(
             git ls-files -z |
             xargs -0 -r -n 1 git blame --incremental --root HEAD -- |
@@ -217,21 +221,21 @@ cache_commit() {
     git -C .patina add cache
 
     if git -C .patina diff --cached --exit-code; then
-        dlog "patina: cache unchanged — skip"
+        dlog "cache unchanged — skip"
         return
     fi
 
     if [ "$(git -C .patina show -s --format=%an refs/patina)" = "github-actions[bot]" ]; then
         git -C .patina commit --amend --allow-empty-message -m "" </dev/null
-        dlog "patina: cache amended (after CI commit)"
+        dlog "cache amended (after CI commit)"
     else
         git -C .patina commit --allow-empty-message -m "" </dev/null
-        dlog "patina: cache committed (after human commit)"
+        dlog "cache committed (after human commit)"
     fi
 
     git -C .patina update-ref refs/patina HEAD
     git -C .patina push --force origin refs/patina:refs/patina
-    dlog "patina: cache pushed (force)"
+    dlog "cache pushed (force)"
 }
 
 badge_generate() {
@@ -245,7 +249,7 @@ badge_generate() {
             }
         ' <<< "$cur_cache"
     )
-    log "score: $pct%"
+    log "score = $pct%"
     sed "s/100%/${pct}%/" "$template" > .patina/badge.svg
 }
 
@@ -257,16 +261,16 @@ prev_head=""
 
 git worktree add --detach .patina refs/patina
 cache_validate
-dlog "patina: mode = $([ "$full_mode" = 0 ] && echo incremental || echo full)"
-dlog "patina: prev_cache = $(head -1 <<< "$prev_cache")"
+log "mode = $([ "$full_mode" = 0 ] && echo incremental || echo full)"
+dlog "prev_cache = $(head -1 <<< "$prev_cache")"
 
 blames=""
 blames_compute
 if [ -z "$blames" ]; then
-    elog "patina: no blamable content"
+    elog "no blamable content"
     exit 1
 fi
-dlog "patina: blames = $(wc -l <<< "$blames") commits"
+dlog "blames = $(wc -l <<< "$blames") commits"
 
 scores=$(
     cut -d' ' -f1 <<< "$blames" |
@@ -287,7 +291,7 @@ scores=$(
         }
     ' <(echo "$prev_cache") -
 )
-dlog "patina: scores = $(wc -l <<< "$scores") rows"
+dlog "scores = $(wc -l <<< "$scores") rows"
 
 cur_head=$(git rev-parse HEAD)
 
@@ -315,7 +319,7 @@ cur_cache=$(
     ' <(echo "$blames") <(echo "$scores")
 )
 echo "$cur_cache" > .patina/cache
-dlog "patina: cur_cache = $(head -1 <<< "$cur_cache")"
+dlog "cur_cache = $(head -1 <<< "$cur_cache")"
 
 cache_commit
 
