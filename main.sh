@@ -180,56 +180,40 @@ blames_compute() {
     patina_warmup
 
     blames=$(
-        {
-            git diff -U0 --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
-            awk -v prev_head="$prev_head" '
-                /^diff --git / { f = substr($0, 14, length($0) / 2 - 8) }
-                /^@@ / {
-                    sub(/^[-+]/, "", $2); sub(/^[-+]/, "", $3)
-                    if ($2 !~ /,/) $2 = $2 ",1"
-                    if ($3 !~ /,/) $3 = $3 ",1"
-                    split($2, t, ",")
-                    if (t[2] > 0) oldarg[f] = oldarg[f] " -L " t[1] "," t[1] + t[2] - 1
-                    split($3, t, ",")
-                    if (t[2] > 0) newarg[f] = newarg[f] " -L " t[1] "," t[1] + t[2] - 1
-                }
-                END {
-                    for (f in newarg)
-                        printf "%s\0%s\0%s\0%s\0", f, prev_head "..HEAD", "+", newarg[f]
-                    for (f in oldarg)
-                        printf "%s\0%s\0%s\0%s\0", f, prev_head, "-", oldarg[f]
-                }'
-            git diff -z --numstat --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
-            awk -v prev_head="$prev_head" '
-                BEGIN { RS = "\0"; FS = "\t" }
-                $1 == "-" {
-                    f = $3
-                    printf "%s\0%s\0%s\0%s\0", f, prev_head, "-", ""
-                    printf "%s\0%s\0%s\0%s\0", f, "HEAD", "+", ""
-                }'
-        } |
-        xargs -0 -n 4 bash -c '
-            if [ -z "$4" ] && ! git ls-tree --name-only "$2" -- "$1" | grep -q .; then
-                :
-            else
-                echo "SIDE $3"
-                git blame --incremental --root $4 "$2" -- "$1"
-            fi
-        ' _ |
-        awk '
-            /^SIDE / { side = $2; next }
-            BEGIN { filename = 1 }
-            $1 == "filename" { filename = 1; next }
-            filename {
-                if ($1 !~ /^0+$/) print $1, side $4
-                filename = 0
+        git diff -U0 --text --no-color --no-renames --no-ext-diff "$prev_head" HEAD |
+        awk -v prev_head="$prev_head" '
+            $1 == "diff" { f = substr($0, 14, length($0) / 2 - 8) }
+            $1 == "@@" {
+                sub(/^[-+]/, "", $2); sub(/^[-+]/, "", $3)
+                if ($2 !~ /,/) $2 = $2 ",1"
+                if ($3 !~ /,/) $3 = $3 ",1"
+                split($2, t, ",")
+                if (t[2] > 0) old[f] = old[f] " -L " t[1] "," t[1] + t[2] - 1
+                split($3, t, ",")
+                if (t[2] > 0) new[f] = new[f] " -L " t[1] "," t[1] + t[2] - 1
+            }
+            END {
+                for (f in new)
+                    printf "%s\0%s\0%s\0%s\0", "+", new[f], prev_head "..HEAD", f
+                for (f in old)
+                    printf "%s\0%s\0%s\0%s\0", "-", old[f], prev_head, f
             }' |
+        xargs -0 -n 4 bash -c '
+            echo "$0"
+            git blame --incremental --root $1 "$2" -- "$3"
+        ' |
         awk '
+            BEGIN { filename = 1 }
             NR==FNR {
                 if (NR > 1) lines[$1] = $2
                 next
             }
-            { lines[$1] += $2 }
+            $1 == "+" || $1 == "-" { side = $1; next }
+            $1 == "filename" { filename = 1; next }
+            filename {
+                if ($1 !~ /^0+$/) lines[$1] += side $4
+                filename = 0
+            }
             END { for (c in lines) if (lines[c] > 0) print c, lines[c] }
         ' <(echo "$prev_cache") -
     ) || :
