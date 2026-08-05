@@ -296,30 +296,16 @@ patina_setup
 
 full_mode=1
 prev_cache=""
+prev_head=""
 
 git worktree add --detach .patina refs/patina
 cache_validate
 dlog "patina: mode = $([ "$full_mode" = 0 ] && echo incremental || echo full)"
 dlog "patina: prev_cache = $([ -n "$prev_cache" ] && echo valid || echo empty)"
+dlog "patina: prev_head = ${prev_head:-empty}"
 
-# Full mode (incremental is a stub): prefetch blobs before the full blame.
-git backfill || :
-
-# Surviving lines per commit. The `|| :` absorbs the expected blame failure on
-# an empty repo; the empty check below fails hard on it.
-blames=$(
-    git ls-files -z |
-    xargs -0 -r -n 1 git blame --incremental --root HEAD -- |
-    awk '
-        BEGIN { filename = 1 }
-        $1 == "filename" { filename = 1; next }
-        filename {
-            if ($1 !~ /^0+$/) lines[$1] += $4
-            filename = 0
-        }
-        END { for (i in lines) print i, lines[i] }
-    '
-) || :
+blames=""
+blames_compute
 dlog "patina: blames = $(grep -c . <<< "$blames") commits"
 
 if [ -z "$blames" ]; then
