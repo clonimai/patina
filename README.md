@@ -247,9 +247,8 @@ Ideal output:
 
 Side effects:
 
-- Generates a `cache` file in `.patina/` (weighted aggregation cache, overwritten each CI run)
+- Reads and writes the cache file inside the temporary `.patina/` worktree — the cache persists via the `refs/patina` chain, and the worktree (with its cache) is removed after each run, leaving only `badge.svg` in `.patina/`
 - Pushes `refs/patina` to remote (`--force`, cache chain update)
-- Creates and destroys a temporary worktree (`.patina`, cleaned up after)
 - Deploys `.patina/` to GitHub Pages (overwrites site content)
 
 ## Versions

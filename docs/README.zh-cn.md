@@ -211,9 +211,8 @@ badge.svg           # SVG 模板，替换首次出现的 100%，路径可自定�
 
 副作用：
 
-- 在 `.patina/` 内生成 `cache` 文件（加权聚合缓存，每次 CI 覆盖）
+- 在临时挂载的 `.patina/` worktree 中读写 `cache` 文件——cache 内容经 `refs/patina` 链持久化，worktree（连同 cache）跑完即移除，`.patina/` 目录里最终只剩 `badge.svg`
 - 推送 `refs/patina` 到远程（`--force`，缓存链更新）
-- 创建/销毁临时 worktree（`.patina`，原地操作，跑完清理）
 - 部署 `.patina/` 到 GitHub Pages（覆盖站点内容）
 
 ## 版本
