@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
-MAIN="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/main.sh"
+MAIN="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/main.sh"
 T=$(mktemp -d)
 MODE=$(mktemp /tmp/patina_mode.XXXXXX.sh)
 trap 'rm -rf "$T" "$MODE"' EXIT

@@ -51,7 +51,7 @@ cache_validate() {
 
     if git merge-base --is-ancestor "$prev_head" HEAD; then
         full_mode=0
-        dlog "prev_head is ancestor"
+        log "prev_head is ancestor"
     fi
 
     # Structural checks: header numbers, weights/final pairing, row shapes,
