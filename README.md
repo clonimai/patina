@@ -10,15 +10,16 @@ English · [中文](docs/README.zh-cn.md)
 
 </div>
 
-**Patina** — the sheen that forms on objects through years of use and handling.
-Code ages the same way: modified, reviewed, and refactored over time, every
-surviving line carries traces of human touch. Patina measures how much of that
-remains in your repository.
+**Patina** — originally copper green, then the sheen that years of handling
+leaves on objects like antiques and handcrafted pieces. Code ages the same
+way: modified, reviewed, and refactored over time, every surviving line
+carries a distinct texture. Patina measures the current share of those traces
+in your repository.
 
-The score is yours to define — whether `0.5` means half-human or AI-draft with
-human polish is up to you. The CI script lives in your repo and anyone can
-change it. Patina does not validate: those who don't trust you can't be
-convinced, and those who trust you don't need to be.
+The score's meaning is yours to define — whether `0.5` means half-human or
+AI-draft with human polish is up to you. Patina does not validate: you can
+tamper with it freely, but those who don't trust you still won't be
+convinced.
 
 ## How it works
 
@@ -31,24 +32,22 @@ $$R = \frac{\sum (S_k \times L_k)}{\sum L_k}$$
 Where $S_k$ is the Craft score of commit $k$, and $L_k$ is the number of
 surviving lines it introduced.
 
-Patina tracks **stock, not flow**. Example: A adds 100 human lines (1.0) → B
-adds 100 AI lines (0.0) → C deletes all AI lines and adds 10 human lines
-(1.0). Averaging by commit gives ≈ 0.67, but the repo now has 110 lines, all
-human — the correct answer is 100%. Patina weights by surviving lines: deleted
-lines vanish from `git blame` and their weight cancels out of both numerator
-and denominator. The badge always reflects the current state.
+Patina tracks **stock, not flow** — it measures the quality of what's in the
+repo right now, not the effort spent writing it. Example: A adds 100 human
+lines (1.0) → B adds 100 AI lines (0.0) → C deletes every AI line and adds 10
+human lines (1.0). Weighting the three scores by lines changed gives ≈ 0.68 —
+yet all 110 current lines are human, which is effectively 100%. The former
+counts how it was written (effort); the latter looks at what remains (quality).
+Patina takes the latter. Craft is about quality at its core; polishing is only
+a means to that end.
 
 ```
-Write Craft (trailer at end of message) → CI blame aggregation → deploy badge to Pages
+Craft score on every commit → CI blame aggregation → badge deployed to GitHub Pages
 ```
 
-Two design choices: scores live as **Git Trailers** at the end of commit
-messages, natively parseable by Git (`--trailer`) with no extra infrastructure.
-**No per-file scoring** — one 0–1 number per commit.
-
-## Craft convention
-
-A Craft score is a Git trailer on the final line of the commit message:
+Scores are stored as **Git Trailers** at the end of the commit message,
+natively parseable by Git. A trailer is a line at the end of the message that
+starts with a key:
 
 ```
 Fix the widget parsing edge case
@@ -56,44 +55,39 @@ Fix the widget parsing edge case
 Craft: 0.95
 ```
 
-Rules (Git trailer parsing requires all of these):
-
-- At least one blank line separates it from the body. No blank line, no
-  recognition.
-- The trailer token (`Craft:`) must be at **column 0** — a leading space or tab
-  causes the entire line to be ignored.
-- No blank lines within the trailer block — a blank line truncates the block
-  and everything after it is lost.
-- Nothing after the trailer block — any non-trailer line truncates it.
-- Value is 0–1 (`0`, `0.5`, `0.95`, `1`).
-
-Use `--trailer` to satisfy the format automatically:
+Append it with `--trailer` when committing:
 
 ```bash
 git commit -m "message" --trailer "Craft: 0.95"
 ```
 
+> [!NOTE]
+> If writing by hand: `Craft:` must be at column 0 (no leading space/tab),
+> preceded by a blank line, with no blank lines inside the block and nothing
+> after it.
+
 ## Quick start
 
-Four steps to adopt Patina:
-
-**1. Copy the workflow** to `.github/workflows/patina.yml`:
+**1. Copy the workflow into your repo** — take this repo's
+`.github/workflows/patina.yml` and place it under `.github/workflows/` in your
+own (you may rename it):
 
 ```yaml
 name: Patina
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch:
+    branches: [main]  # trigger on every push to main
+  workflow_dispatch:  # manual trigger
 
+# consecutive runs cancel the still-running previous one
 concurrency:
   group: ${{ github.workflow }}
   cancel-in-progress: true
 
 permissions:
-  contents: write
-  pages: write
+  contents: write  # push the cache to refs/patina
+  pages: write     # deploy to GitHub Pages
   id-token: write
 
 jobs:
@@ -104,36 +98,45 @@ jobs:
       url: ${{ steps.deploy.outputs.page_url }}
 
     steps:
+      # fetch the remote repo and check it out
       - name: Checkout
         uses: actions/checkout@v7
         with:
-          fetch-depth: 0
-          filter: blob:none
+          fetch-depth: 0  # full history
+          filter: blob:none # blobless, fetch blobs on demand
 
+      # run main.sh from your repo root
       - name: Main
         run: source main.sh
 
+      # package the contents of .patina as an artifact
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5
         with:
           path: .patina
+          # include hidden files and folders
           include-hidden-files: true
 
+      # deploy the uploaded artifact to GitHub Pages
       - name: Deploy to GitHub Pages
         id: deploy
         uses: actions/deploy-pages@v5
 ```
 
-**2. Download `main.sh` and `badge.svg`** to your repo root:
+**2. Place `main.sh` and `badge.svg` wherever you like** — the two reference
+each other by relative path: the workflow runs `source main.sh`, and the script
+reads `template=badge.svg`. Default: both at the repo root. Subdirectories
+work too, but then adjust the `run:` line and `template` together. The badge
+template can be your own SVG — the only constraint is that the script replaces
+the **first occurrence** of `100%` with the actual percentage.
 
-```bash
-curl -O https://raw.githubusercontent.com/clonimai/patina/main/main.sh \
-     -O https://raw.githubusercontent.com/clonimai/patina/main/badge.svg
-```
+**3. Enable GitHub Pages** — Settings → Pages → Source: *GitHub Actions*.
 
-**3. Enable GitHub Pages** — Settings → Pages → Source: *GitHub Actions*. **Note:
-this workflow will overwrite your Pages deployment.** If you already have a
-Pages site, merge the two deployment workflows yourself.
+> [!NOTE]
+> The workflow will overwrite your Pages deployment (merge workflows if you
+> already have a Pages site), needs `contents: write`, `pages: write`, and
+> `id-token: write` permissions; consecutive triggers cancel the previous run
+> still in progress, preventing deploy races.
 
 **4. Write a Craft score on every commit, then hang the badge in your README:**
 
@@ -179,29 +182,40 @@ Fill in the missing score at the end of each data row:
 
 **Recommended: use a worktree** to avoid touching your working directory:
 
+> [!NOTE]
+> Pull the latest cache before editing — CI force-pushes `refs/patina` on
+> every run, so your local ref may be stale. Edit against the newest version
+> and resolve any conflicts.
+
 ```bash
-git fetch origin +refs/patina:refs/patina
-git worktree add --detach .patina refs/patina
-# edit .patina/cache
-git -C .patina add cache
-git -C .patina commit --allow-empty-message -m ""
-git -C .patina push origin HEAD:refs/patina --force
-git worktree remove .patina
+git fetch origin +refs/patina:refs/patina      # pull the invisible ref (CI may have force-pushed)
+git worktree add --detach .patina refs/patina  # check out the cache chain into a separate .patina/ tree
+# edit .patina/cache — append the missing score at the end of a data row
+git -C .patina add cache                        # stage the cache
+git -C .patina commit -m "backfill craft"       # commit, any message works
+git -C .patina push origin HEAD:refs/patina --force # push back to refs/patina (force overwrites)
+git worktree remove .patina                     # remove the temporary worktree
 ```
 
-You can also checkout directly, edit, push, and switch back. Pre-adoption
-commits are handled the same way — backfill them or the badge stays at `—%`.
+The worktree checks the cache chain out to a separate temporary directory, so
+your current branch and uncommitted changes stay untouched. Edit `cache` in
+`.patina/`, commit, force-push back to `refs/patina` (the ref may have been
+updated by CI, so `--force` overwrites it), then remove the worktree.
 
-## Notes & limitations
+`git -C .patina xxx` is equivalent to `cd .patina` followed by `git xxx`;
+pick either style:
 
-- **Craft format is strict**: `Craft:` must be at column 0 (no leading
-  space/tab), preceded by a blank line, with no blank lines inside the block
-  and nothing after it. Any violation means it is not recognized.
-- **CI permissions**: the workflow needs `contents: write`, `pages: write`,
-  and `id-token: write`, plus Pages enabled. **It will overwrite your
-  Pages deployment** — merge workflows if you already have a Pages site.
-- **Concurrency**: the workflow uses `concurrency` to serialize pushes on the
-  same branch, canceling older runs to prevent deployment races.
+```bash
+cd .patina
+git add cache
+git commit -m "backfill craft"
+git push origin HEAD:refs/patina --force
+cd .. && git worktree remove .patina
+```
+
+You can also checkout directly, edit, push, and switch back — it just briefly
+occupies your working directory. Pre-adoption commits are handled the same
+way — backfill them or the badge stays at `—%`.
 
 ## FAQ
 
@@ -226,8 +240,8 @@ main.sh             # core logic, sourced directly by the workflow
 badge.svg           # SVG template — first 100% replaced, path customizable
 ```
 
-**`main.sh`** — pure Bash, zero external dependencies, runs via `source`
-(variables flow across functions, no intermediate files).
+**`main.sh`** — pure Bash with no heavy external dependencies, run via
+`source`.
 
 Expected inputs (prepared by the workflow):
 
@@ -247,7 +261,7 @@ Ideal output:
 
 Side effects:
 
-- Reads and writes the cache file inside the temporary `.patina/` worktree — the cache persists via the `refs/patina` chain, and the worktree (with its cache) is removed after each run, leaving only `badge.svg` in `.patina/`
+- Temporarily mounts `.patina/` as a worktree and reads/writes `cache` in it. Once the cache is pushed to the remote, the worktree (with the cache) is removed, leaving only `badge.svg` in `.patina/`
 - Pushes `refs/patina` to remote (`--force`, cache chain update)
 - Deploys `.patina/` to GitHub Pages (overwrites site content)
 
@@ -266,7 +280,7 @@ Side effects:
 
 - Git hooks — `commit-msg` Craft trailer check; compute average Craft between
   two commits.
-- Backfill automation — command-line wrapper for the manual worktree backfill
-  process.
+- Backfill automation — a CLI wrapper for the manual worktree backfill process
+  (manual for now; see Backfilling scores above).
 
 MIT © clonimai
