@@ -193,14 +193,15 @@ git worktree add --detach .patina refs/patina  # check out the cache chain into 
 # edit .patina/cache — append the missing score at the end of a data row
 git -C .patina add cache                        # stage the cache
 git -C .patina commit -m "backfill craft"       # commit, any message works
-git -C .patina push origin HEAD:refs/patina --force # push back to refs/patina (force overwrites)
+git -C .patina push origin HEAD:refs/patina  # push back to refs/patina (re-pull or merge if rejected)
 git worktree remove .patina                     # remove the temporary worktree
 ```
 
 The worktree checks the cache chain out to a separate temporary directory, so
 your current branch and uncommitted changes stay untouched. Edit `cache` in
-`.patina/`, commit, force-push back to `refs/patina` (the ref may have been
-updated by CI, so `--force` overwrites it), then remove the worktree.
+`.patina/`, commit, and push back to `refs/patina`; if it's rejected, CI
+updated the ref meanwhile — re-pull and re-apply, or merge to resolve the
+conflict. Then remove the worktree.
 
 `git -C .patina xxx` is equivalent to `cd .patina` followed by `git xxx`;
 pick either style:
@@ -209,7 +210,7 @@ pick either style:
 cd .patina
 git add cache
 git commit -m "backfill craft"
-git push origin HEAD:refs/patina --force
+git push origin HEAD:refs/patina
 cd .. && git worktree remove .patina
 ```
 
@@ -252,17 +253,14 @@ Expected inputs (prepared by the workflow):
 | Remote `refs/patina` | Invisible ref holding the cache chain (auto-created on first run) |
 | `git config user.name/email` | Not set by workflow; script configures `github-actions[bot]` internally |
 
-Ideal output:
+Output:
 
-```
-.patina/
-└── badge.svg        # rendered SVG (100% → actual percentage)
-```
+- `.patina/badge.svg` — rendered SVG (`100%` → actual percentage)
+- Remote `refs/patina` branch — `cache` pushed as a commit, feeding scores to the next run
 
 Side effects:
 
-- Temporarily mounts `.patina/` as a worktree and reads/writes `cache` in it. Once the cache is pushed to the remote, the worktree (with the cache) is removed, leaving only `badge.svg` in `.patina/`
-- Pushes `refs/patina` to remote (`--force`, cache chain update)
+- Temporarily mounts `.patina/` as a worktree, removed after each run
 - Deploys `.patina/` to GitHub Pages (overwrites site content)
 
 ## Versions
@@ -282,5 +280,6 @@ Side effects:
   two commits.
 - Backfill automation — a CLI wrapper for the manual worktree backfill process
   (manual for now; see Backfilling scores above).
+- Ongoing polish and possible bug fixes.
 
 MIT © clonimai

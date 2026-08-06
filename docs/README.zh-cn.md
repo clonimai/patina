@@ -160,11 +160,11 @@ git worktree add --detach .patina refs/patina  # 把缓存链检出到独立工�
 # 编辑 .patina/cache —— 在数据行末尾填上缺失的 score
 git -C .patina add cache                        # 暂存 cache
 git -C .patina commit -m "backfill craft"       # 提交，message 随意写
-git -C .patina push origin HEAD:refs/patina --force # 推回远端 refs/patina（force 确保覆盖）
+git -C .patina push origin HEAD:refs/patina  # 推回远端（被拒说明期间 CI 又更新，重新拉取或合并）
 git worktree remove .patina                     # 移除临时工作树
 ```
 
-worktree 把缓存链检出一个独立的临时目录，和当前工作区互不干扰：在 `.patina/` 里改 `cache`，主分支上的代码和未提交的改动都不受影响。改完提交、force push 回 `refs/patina`（远端该 ref 可能已被 CI 更新，force 确保覆盖），最后移除 worktree。
+worktree 把缓存链检出一个独立的临时目录，和当前工作区互不干扰：在 `.patina/` 里改 `cache`，主分支上的代码和未提交的改动都不受影响。改完提交、push 回 `refs/patina`；若被拒，说明期间 CI 又更新了，重新拉取再改、或合并解决冲突均可。最后移除 worktree。
 
 `git -C .patina xxx` 等价于先 `cd .patina` 再执行 `git xxx`，两种写法任选：
 
@@ -172,7 +172,7 @@ worktree 把缓存链检出一个独立的临时目录，和当前工作区互�
 cd .patina
 git add cache
 git commit -m "backfill craft"
-git push origin HEAD:refs/patina --force
+git push origin HEAD:refs/patina
 cd .. && git worktree remove .patina
 ```
 
@@ -211,17 +211,14 @@ badge.svg           # SVG 模板，替换首次出现的 100%，路径可自定�
 | 远程 `refs/patina` | 隐形 ref，存放缓存链（首次运行自动创建） |
 | `git config user.name/email` | workflow 未设置，脚本内自配 `github-actions[bot]` |
 
-理想输出：
+输出：
 
-```
-.patina/
-└── badge.svg        # 渲染后的 SVG（100% → 实际百分比）
-```
+- `.patina/badge.svg`——渲染后的 SVG（`100%` → 实际百分比）
+- 远程 `refs/patina` 分支——`cache` 作为提交推上去，评分数据供下次运行读取
 
 副作用：
 
-- 会临时挂载 `.patina/` 作为 worktree，并读写其中的 `cache` 文件。cache 内容推送到远程后，worktree（连同 cache）会自动移除，`.patina/` 目录里最终只剩 `badge.svg`
-- 推送 `refs/patina` 到远程（`--force`，缓存链更新）
+- 临时挂载 `.patina/` 作为 worktree，跑完自动移除
 - 部署 `.patina/` 到 GitHub Pages（覆盖站点内容）
 
 ## 版本
@@ -235,5 +232,6 @@ badge.svg           # SVG 模板，替换首次出现的 100%，路径可自定�
 
 - Git hooks——`commit-msg` 检测 Craft trailer；两个 commit 间计算平均 Craft。
 - 补分自动化——worktree 手动补分的命令行封装（当前可手动操作，见上方补分节）。
+- 继续打磨与可能的 bug 修复。
 
 MIT © clonimai
