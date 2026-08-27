@@ -2,7 +2,7 @@
 
 # Patina
 
-English · [中文](docs/README.zh-cn.md)
+English · [中文](docs/README.zh.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT) [![Patina CI](https://github.com/clonimai/patina/actions/workflows/patina.yml/badge.svg)](https://github.com/clonimai/patina/actions/workflows/patina.yml)
 
